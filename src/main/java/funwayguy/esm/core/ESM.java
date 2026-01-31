@@ -1,6 +1,5 @@
 package funwayguy.esm.core;
 
-import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.MinecraftForge;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -12,7 +11,6 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.registry.EntityRegistry;
-import cpw.mods.fml.common.registry.GameRegistry;
 import funwayguy.esm.ai.interop.ModAccessors;
 import funwayguy.esm.core.proxies.CommonProxy;
 import funwayguy.esm.entities.EntityESMGhast;
@@ -60,6 +58,5 @@ public class ESM {
     }
 
     @EventHandler
-    public static void postInit(FMLPostInitializationEvent event) {
-    }
+    public static void postInit(FMLPostInitializationEvent event) {}
 }

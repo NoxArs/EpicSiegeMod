@@ -87,7 +87,8 @@ public class ESM_EntityAIDigging extends EntityAIBase {
         return target != null && entityDigger != null
             && entityDigger.isEntityAlive()
             && hasMarked
-            && entityDigger.getNavigator().noPath()
+            && entityDigger.getNavigator()
+                .noPath()
             && entityDigger.getDistanceToEntity(target) > 1D
             && (target.onGround || !entityDigger.canEntityBeSeen(target));
     }
@@ -195,9 +196,9 @@ public class ESM_EntityAIDigging extends EntityAIBase {
         float f1 = entityLiving.prevRotationPitch + (entityLiving.rotationPitch - entityLiving.prevRotationPitch) * f;
         float f2 = entityLiving.prevRotationYaw + (entityLiving.rotationYaw - entityLiving.prevRotationYaw) * f;
 
-        int digWidth  = MathHelper.ceiling_double_int(entityLiving.width);
+        int digWidth = MathHelper.ceiling_double_int(entityLiving.width);
         int digHeight = MathHelper.ceiling_double_int(entityLiving.height);
-        int passMax   = digWidth * digWidth * digHeight;
+        int passMax = digWidth * digWidth * digHeight;
 
         // 防御：避免 0
         if (passMax <= 0) passMax = 1;
@@ -211,7 +212,8 @@ public class ESM_EntityAIDigging extends EntityAIBase {
             double rayY = y + entityLiving.posY;
             double rayZ = z + entityLiving.posZ;
 
-            MovingObjectPosition mop = AIUtils.RayCastBlocks(entityLiving.worldObj, rayX, rayY, rayZ, f2, f1, dist, false);
+            MovingObjectPosition mop = AIUtils
+                .RayCastBlocks(entityLiving.worldObj, rayX, rayY, rayZ, f2, f1, dist, false);
 
             // 默认：本次没成功就推进 scanTick，尝试下一个点
             scanTick = (scanTick + 1) % passMax;
@@ -224,16 +226,16 @@ public class ESM_EntityAIDigging extends EntityAIBase {
 
             boolean inList = BlockAndMeta.isInBlockAndMetaList(block, meta, ESM_Settings.getZombieDigBlacklist());
             if (!ESM_Settings.ZombieSwapList) {
-                if (inList) continue;     // 黑名单：在表里 -> 跳过
+                if (inList) continue; // 黑名单：在表里 -> 跳过
             } else {
-                if (!inList) continue;    // 白名单：不在表 -> 跳过
+                if (!inList) continue; // 白名单：不在表 -> 跳过
             }
 
-            boolean toolOk =
-                !ESM_Settings.ZombieDiggerTools
-                    || (item != null && (item.getItem().canHarvestBlock(block, item)
-                    || (item.getItem() instanceof ItemPickaxe && TOOLS_NERFED && block.getMaterial() == Material.rock)))
-                    || block.getMaterial().isToolNotRequired();
+            boolean toolOk = !ESM_Settings.ZombieDiggerTools || (item != null && (item.getItem()
+                .canHarvestBlock(block, item)
+                || (item.getItem() instanceof ItemPickaxe && TOOLS_NERFED && block.getMaterial() == Material.rock)))
+                || block.getMaterial()
+                    .isToolNotRequired();
 
             if (toolOk) {
                 scanTick = 0; // 你原本命中后会归零

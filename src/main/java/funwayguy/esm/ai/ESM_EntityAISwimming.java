@@ -15,12 +15,12 @@ import net.minecraft.util.MathHelper;
  * 2) Avoid "shoreline jitter": don't trigger just because AABB barely touches liquid.
  * 3) Throttle decisions: recompute every N ticks, but with stable countdown logic.
  * 4) Preserve your intent:
- *    - Oxygen critical => force up
- *    - If path/target wants down => do NOT jump (optionally nudge downward)
- *    - Otherwise => try to float up
+ * - Oxygen critical => force up
+ * - If path/target wants down => do NOT jump (optionally nudge downward)
+ * - Otherwise => try to float up
  */
-public class ESM_EntityAISwimming extends EntityAIBase
-{
+public class ESM_EntityAISwimming extends EntityAIBase {
+
     private final EntityLiving host;
 
     // --- Throttle ---
@@ -45,19 +45,18 @@ public class ESM_EntityAISwimming extends EntityAIBase
     private static final boolean ENABLE_DIVE_NUDGE = true;
     private static final double DIVE_NUDGE = 0.02D; // small, safe
 
-    public ESM_EntityAISwimming(EntityLiving host)
-    {
+    public ESM_EntityAISwimming(EntityLiving host) {
         this.host = host;
         // 4 = Jumping mutex; prevents conflict with other jump tasks
         this.setMutexBits(4);
 
         // Allow navigator to consider swimming paths
-        host.getNavigator().setCanSwim(true);
+        host.getNavigator()
+            .setCanSwim(true);
     }
 
     @Override
-    public boolean shouldExecute()
-    {
+    public boolean shouldExecute() {
         if (host == null || host.worldObj == null) return false;
 
         // Strong but stable liquid detection: sample at feet + mid-body
@@ -68,8 +67,7 @@ public class ESM_EntityAISwimming extends EntityAIBase
     }
 
     @Override
-    public boolean continueExecuting()
-    {
+    public boolean continueExecuting() {
         if (host == null || host.worldObj == null) return false;
 
         // Must still be in liquid to keep running
@@ -80,32 +78,26 @@ public class ESM_EntityAISwimming extends EntityAIBase
     }
 
     @Override
-    public void startExecuting()
-    {
+    public void startExecuting() {
         // force immediate recompute when task starts
         checkDelay = 0;
         refreshDecisionIfNeeded();
     }
 
     @Override
-    public void resetTask()
-    {
+    public void resetTask() {
         shouldJump = false;
         checkDelay = 0;
     }
 
     @Override
-    public void updateTask()
-    {
-        if (shouldJump)
-        {
-            host.getJumpHelper().setJumping();
-        }
-        else if (ENABLE_DIVE_NUDGE)
-        {
+    public void updateTask() {
+        if (shouldJump) {
+            host.getJumpHelper()
+                .setJumping();
+        } else if (ENABLE_DIVE_NUDGE) {
             // Only nudge down while in liquid; avoid pushing into ground when leaving water
-            if (isInAnyLiquid(host))
-            {
+            if (isInAnyLiquid(host)) {
                 // If already rising fast (e.g., water current), don't fight too hard
                 if (host.motionY > -0.1D) host.motionY -= DIVE_NUDGE;
             }
@@ -116,10 +108,8 @@ public class ESM_EntityAISwimming extends EntityAIBase
     // Internals
     // =========================================================
 
-    private void refreshDecisionIfNeeded()
-    {
-        if (checkDelay > 0)
-        {
+    private void refreshDecisionIfNeeded() {
+        if (checkDelay > 0) {
             checkDelay--;
             return;
         }
@@ -131,33 +121,35 @@ public class ESM_EntityAISwimming extends EntityAIBase
     /**
      * Robust liquid detection without shoreline jitter.
      * Instead of AABB-any-liquid, we sample two points:
-     *  - feet (minY + 0.05)
-     *  - mid body (minY + height*0.5)
+     * - feet (minY + 0.05)
+     * - mid body (minY + height*0.5)
      *
      * This avoids "touching water with a corner" triggering swim AI on land.
      */
-    private static boolean isInAnyLiquid(EntityLiving e)
-    {
+    private static boolean isInAnyLiquid(EntityLiving e) {
         // Use bounding box minY for stable "foot level"
         double footY = e.boundingBox.minY + 0.05D;
-        double midY  = e.boundingBox.minY + (e.height * 0.5D);
+        double midY = e.boundingBox.minY + (e.height * 0.5D);
 
         int x = MathHelper.floor_double(e.posX);
         int z = MathHelper.floor_double(e.posZ);
 
         int yFoot = MathHelper.floor_double(footY);
-        int yMid  = MathHelper.floor_double(midY);
+        int yMid = MathHelper.floor_double(midY);
 
         // Any liquid material at these samples -> treat as swimming
-        return e.worldObj.getBlock(x, yFoot, z).getMaterial().isLiquid()
-            || e.worldObj.getBlock(x, yMid,  z).getMaterial().isLiquid();
+        return e.worldObj.getBlock(x, yFoot, z)
+            .getMaterial()
+            .isLiquid()
+            || e.worldObj.getBlock(x, yMid, z)
+                .getMaterial()
+                .isLiquid();
     }
 
     /**
      * Decision: true => jump/up, false => do not jump (allow dive / pursue down)
      */
-    private boolean computeJumpDecision()
-    {
+    private boolean computeJumpDecision() {
         // Priority 0: oxygen critical
         if (host.getAir() < AIR_CRITICAL) return true;
 
@@ -165,27 +157,23 @@ public class ESM_EntityAISwimming extends EntityAIBase
         double hostFootY = host.boundingBox.minY;
 
         // Priority 1: path navigation wants down
-        PathEntity path = host.getNavigator().getPath();
-        if (path != null && !path.isFinished())
-        {
+        PathEntity path = host.getNavigator()
+            .getPath();
+        if (path != null && !path.isFinished()) {
             // Final point check
             PathPoint finalPoint = path.getFinalPathPoint();
-            if (finalPoint != null)
-            {
+            if (finalPoint != null) {
                 // PathPoint yCoord is a block grid coordinate; use tolerance
-                if (finalPoint.yCoord + Y_TOL < hostFootY)
-                {
+                if (finalPoint.yCoord + Y_TOL < hostFootY) {
                     return false;
                 }
             }
 
             // Next point check (more immediate)
             int idx = path.getCurrentPathIndex();
-            if (idx >= 0 && idx < path.getCurrentPathLength())
-            {
+            if (idx >= 0 && idx < path.getCurrentPathLength()) {
                 PathPoint next = path.getPathPointFromIndex(idx);
-                if (next != null && next.yCoord + Y_TOL < hostFootY)
-                {
+                if (next != null && next.yCoord + Y_TOL < hostFootY) {
                     return false;
                 }
             }
@@ -193,14 +181,11 @@ public class ESM_EntityAISwimming extends EntityAIBase
 
         // Priority 2: combat pursuit wants down (only when close)
         EntityLivingBase target = host.getAttackTarget();
-        if (target != null && target.isEntityAlive())
-        {
+        if (target != null && target.isEntityAlive()) {
             double distSq = host.getDistanceSqToEntity(target);
-            if (distSq < NEAR_DIST_SQ)
-            {
+            if (distSq < NEAR_DIST_SQ) {
                 // If target clearly below me, prefer dive (do not jump)
-                if (target.boundingBox.minY + 0.5D < hostFootY)
-                {
+                if (target.boundingBox.minY + 0.5D < hostFootY) {
                     return false;
                 }
             }

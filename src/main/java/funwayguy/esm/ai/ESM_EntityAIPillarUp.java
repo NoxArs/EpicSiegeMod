@@ -1,17 +1,17 @@
 package funwayguy.esm.ai;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.material.Material;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.init.Blocks;
-import net.minecraft.block.material.Material;
 import net.minecraft.util.MathHelper;
 import net.minecraftforge.common.util.ForgeDirection;
 
+import funwayguy.esm.core.ESM_Blocks;
 import funwayguy.esm.core.ESM_Settings;
 import funwayguy.esm.core.ESM_Utils;
-import funwayguy.esm.core.ESM_Blocks;
 
 /**
  * EpicSiege 1.7.10 - Pillar Up AI (hardened)
@@ -24,12 +24,11 @@ import funwayguy.esm.core.ESM_Blocks;
  * - Validates placement again at update time to avoid desync/race
  * - Avoids "face-hug jitter" by refusing when too close
  */
-public class ESM_EntityAIPillarUp extends EntityAIBase
-{
+public class ESM_EntityAIPillarUp extends EntityAIBase {
+
     /** Potential surfaces zombies can initialise pillaring on */
-    static final ForgeDirection[] placeSurface = new ForgeDirection[] {
-        ForgeDirection.DOWN, ForgeDirection.NORTH, ForgeDirection.EAST, ForgeDirection.SOUTH, ForgeDirection.WEST
-    };
+    static final ForgeDirection[] placeSurface = new ForgeDirection[] { ForgeDirection.DOWN, ForgeDirection.NORTH,
+        ForgeDirection.EAST, ForgeDirection.SOUTH, ForgeDirection.WEST };
 
     public int placeDelay = 15;
     public EntityLiving builder;
@@ -41,21 +40,19 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
 
     // --- anti-jitter / anti-frenzy state ---
     private double lastX, lastZ;
-    private int stagnantTicks;     // ticks with near-zero horizontal movement
-    private int failPathTicks;     // ticks where nav is failing or colliding
-    private int runTicks;          // ticks since startExecuting
-    private int placed;            // blocks placed in this run
+    private int stagnantTicks; // ticks with near-zero horizontal movement
+    private int failPathTicks; // ticks where nav is failing or colliding
+    private int runTicks; // ticks since startExecuting
+    private int placed; // blocks placed in this run
 
-    public ESM_EntityAIPillarUp(EntityLiving entity)
-    {
+    public ESM_EntityAIPillarUp(EntityLiving entity) {
         this.builder = entity;
         // movement-ish AI; adjust if you have your own mutex scheme
         this.setMutexBits(1);
     }
 
     @Override
-    public boolean shouldExecute()
-    {
+    public boolean shouldExecute() {
         // Server-only. (1.7.10 AI generally server-side, but keep it explicit)
         if (builder.worldObj == null || builder.worldObj.isRemote) return false;
 
@@ -63,8 +60,7 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         if (ESM_Settings.ZombiePillaring <= 0) return false;
 
         // Siege window gate
-        if (ESM_Settings.ZombieEnhancementsOnlyWhenSiegeAllowed)
-        {
+        if (ESM_Settings.ZombieEnhancementsOnlyWhenSiegeAllowed) {
             if (!ESM_Utils.isSiegeAllowed(builder.worldObj.getWorldTime())) return false;
         }
 
@@ -111,24 +107,17 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         if (xOff == 0 && zOff == 0) return false;
 
         // Sideways pillaring: step sideways at y-1 if supported
-        if ((target.posY - builder.posY) < 16.0D
-            && isNormalCube(origI, origJ - 2, origK)
-            && isNormalCube(origI, origJ - 1, origK))
-        {
-            if (isReplaceable(origI + xOff, origJ - 1, origK))
-            {
+        if ((target.posY - builder.posY) < 16.0D && isNormalCube(origI, origJ - 2, origK)
+            && isNormalCube(origI, origJ - 1, origK)) {
+            if (isReplaceable(origI + xOff, origJ - 1, origK)) {
                 i = origI + xOff;
                 j = origJ - 1;
                 k = origK;
-            }
-            else if (isReplaceable(origI, origJ - 1, origK + zOff))
-            {
+            } else if (isReplaceable(origI, origJ - 1, origK + zOff)) {
                 i = origI;
                 j = origJ - 1;
                 k = origK + zOff;
-            }
-            else
-            {
+            } else {
                 return false;
             }
         }
@@ -144,8 +133,7 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
     }
 
     @Override
-    public void startExecuting()
-    {
+    public void startExecuting() {
         placeDelay = 15;
 
         runTicks = 0;
@@ -159,8 +147,7 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
     }
 
     @Override
-    public boolean continueExecuting()
-    {
+    public boolean continueExecuting() {
         if (builder.worldObj == null || builder.worldObj.isRemote) return false;
         if (target == null || !target.isEntityAlive()) return false;
 
@@ -172,8 +159,7 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
     }
 
     @Override
-    public void resetTask()
-    {
+    public void resetTask() {
         target = null;
 
         runTicks = 0;
@@ -184,23 +170,20 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
     }
 
     @Override
-    public void updateTask()
-    {
+    public void updateTask() {
         runTicks++;
 
         if (target == null || !target.isEntityAlive()) return;
         if (placed >= ESM_Settings.ZombiePillaring) return;
 
-        if (placeDelay > 0)
-        {
+        if (placeDelay > 0) {
             placeDelay--;
             return;
         }
         placeDelay = 15;
 
         // Re-validate placement now (world may have changed since shouldExecute)
-        if (!canStillPlace(blockX, blockY, blockZ))
-        {
+        if (!canStillPlace(blockX, blockY, blockZ)) {
             // End this run cleanly
             placed = ESM_Settings.ZombiePillaring;
             return;
@@ -213,25 +196,26 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         placed++;
 
         // Only teleport if we're actually below the step; reduces "blink spam"
-        if (builder.posY < (blockY + 0.9D))
-        {
+        if (builder.posY < (blockY + 0.9D)) {
             builder.setPositionAndUpdate(blockX + 0.5D, blockY + 1D, blockZ + 0.5D);
         }
 
         // Try re-pathing to target
-        builder.getNavigator().setPath(builder.getNavigator().getPathToEntityLiving(target), 1D);
+        builder.getNavigator()
+            .setPath(
+                builder.getNavigator()
+                    .getPathToEntityLiving(target),
+                1D);
     }
 
     @Override
-    public boolean isInterruptible()
-    {
+    public boolean isInterruptible() {
         return false;
     }
 
     // ---------------- helpers ----------------
 
-    private boolean isStuck(EntityLiving e)
-    {
+    private boolean isStuck(EntityLiving e) {
         // Horizontal movement delta
         double dxm = e.posX - lastX;
         double dzm = e.posZ - lastZ;
@@ -243,7 +227,8 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         lastX = e.posX;
         lastZ = e.posZ;
 
-        boolean navNoPath = e.getNavigator().noPath();
+        boolean navNoPath = e.getNavigator()
+            .noPath();
         boolean collided = e.isCollidedHorizontally;
 
         // Fail-path ticks only accumulate when navigation is not progressing
@@ -254,25 +239,21 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         return (failPathTicks >= 20) && (stagnantTicks >= 30);
     }
 
-    private boolean canPlaceAt(int i, int j, int k, int origI, int origJ, int origK)
-    {
+    private boolean canPlaceAt(int i, int j, int k, int origI, int origJ, int origK) {
         // must not suffocate at current or original position when we step up
         if (blocksMovement(origI, origJ + 2, origK)) return false;
         if (blocksMovement(i, j + 2, k)) return false;
 
         // must have some supporting normal cube adjacent (or below)
-        for (ForgeDirection dir : placeSurface)
-        {
-            if (isNormalCube(i + dir.offsetX, j + dir.offsetY, k + dir.offsetZ))
-            {
+        for (ForgeDirection dir : placeSurface) {
+            if (isNormalCube(i + dir.offsetX, j + dir.offsetY, k + dir.offsetZ)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean canStillPlace(int x, int y, int z)
-    {
+    private boolean canStillPlace(int x, int y, int z) {
         // target block must be replaceable
         if (!isReplaceable(x, y, z)) return false;
 
@@ -281,30 +262,28 @@ public class ESM_EntityAIPillarUp extends EntityAIBase
         if (blocksMovement(x, y + 2, z)) return false;
 
         // must still have a supporting face
-        for (ForgeDirection dir : placeSurface)
-        {
-            if (isNormalCube(x + dir.offsetX, y + dir.offsetY, z + dir.offsetZ))
-            {
+        for (ForgeDirection dir : placeSurface) {
+            if (isNormalCube(x + dir.offsetX, y + dir.offsetY, z + dir.offsetZ)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean isNormalCube(int x, int y, int z)
-    {
-        return builder.worldObj.getBlock(x, y, z).isNormalCube();
+    private boolean isNormalCube(int x, int y, int z) {
+        return builder.worldObj.getBlock(x, y, z)
+            .isNormalCube();
     }
 
-    private boolean blocksMovement(int x, int y, int z)
-    {
-        Material m = builder.worldObj.getBlock(x, y, z).getMaterial();
+    private boolean blocksMovement(int x, int y, int z) {
+        Material m = builder.worldObj.getBlock(x, y, z)
+            .getMaterial();
         return m != null && m.blocksMovement();
     }
 
-    private boolean isReplaceable(int x, int y, int z)
-    {
-        Material m = builder.worldObj.getBlock(x, y, z).getMaterial();
+    private boolean isReplaceable(int x, int y, int z) {
+        Material m = builder.worldObj.getBlock(x, y, z)
+            .getMaterial();
         return m != null && m.isReplaceable();
     }
 }

@@ -1,0 +1,17 @@
+{
+	"cena_creeper.start": {
+		"category": "neutral",
+		"replace": true,
+		"sounds": [
+			"cena_creeper_start"
+		]
+	},
+    
+	"cena_creeper.end": {
+		"category": "neutral",
+		"replace": true,
+		"sounds": [
+			"cena_creeper_end"
+		]
+	}
+}

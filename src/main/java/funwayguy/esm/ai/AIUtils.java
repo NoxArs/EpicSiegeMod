@@ -21,6 +21,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeHooks;
 
 public class AIUtils {
+
     private static final boolean NERFED_PICKAXES = !Items.iron_pickaxe
         .canHarvestBlock(Blocks.stone, new ItemStack(Items.iron_pickaxe));
     private static final float RADIAN = 0.017453292F;

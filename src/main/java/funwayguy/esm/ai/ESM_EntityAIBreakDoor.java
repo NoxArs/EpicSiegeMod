@@ -19,19 +19,11 @@ public class ESM_EntityAIBreakDoor extends ESM_EntityAIDoorInteract {
         super(p_i1618_1_);
     }
 
-    /**
-     * Returns whether the EntityAIBase should begin execution.
-     */
     public boolean shouldExecute() {
-        boolean flag = !super.shouldExecute() ? false
-            : (!this.theEntity.worldObj.getGameRules()
-                .getGameRuleBooleanValue("mobGriefing") ? false : true);
-        if (!flag) {
-            return false;
-        } else {
-            boolean b = this.isValidDoor();
-            return b;
-        }
+        boolean flag = super.shouldExecute() && (this.theEntity.worldObj.getGameRules()
+            .getGameRuleBooleanValue("mobGriefing"));
+        if (flag) return this.isValidDoor();
+        else return false;
     }
 
     public boolean isValidDoor() {
@@ -65,21 +57,14 @@ public class ESM_EntityAIBreakDoor extends ESM_EntityAIDoorInteract {
         this.field_75358_j = -1; // NEW
     }
 
-    /**
-     * Returns whether an in-progress EntityAIBase should continue executing
-     */
     public boolean continueExecuting() {
         if (!this.theEntity.worldObj.getGameRules()
             .getGameRuleBooleanValue("mobGriefing")) return false;
 
-        double d0 = this.theEntity
-            .getDistanceSq((double) this.entityPosX, (double) this.entityPosY, (double) this.entityPosZ);
+        double d0 = this.theEntity.getDistanceSq(this.entityPosX, this.entityPosY, this.entityPosZ);
         return this.breakingTime <= 240 && this.isValidDoor() && d0 < 9.0D;
     }
 
-    /**
-     * Resets the task
-     */
     public void resetTask() {
         super.resetTask();
         this.theEntity.worldObj.destroyBlockInWorldPartially(
@@ -91,9 +76,6 @@ public class ESM_EntityAIBreakDoor extends ESM_EntityAIDoorInteract {
         this.field_75358_j = -1; // NEW
     }
 
-    /**
-     * Updates the task
-     */
     public void updateTask() {
         super.updateTask();
 

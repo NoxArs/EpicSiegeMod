@@ -3,7 +3,7 @@
 	"modList": [{
 		"modid": "${modId}",
 		"name": "${modName}",
-		"description": "Makes Minecraft's mobs extremely difficult and dangerous with an unending lust for death and destruction. One might even say it's just down right unfair.\n\nUnofficial edition made for the Reign Modpack.",
+		"description": "Makes Minecraft's mobs extremely difficult and dangerous with an unending lust for death and destruction. One might even say it's just down right unfair.",
 		"version": "${modVersion}",
 		"mcversion": "${minecraftVersion}",
 		"url": "",

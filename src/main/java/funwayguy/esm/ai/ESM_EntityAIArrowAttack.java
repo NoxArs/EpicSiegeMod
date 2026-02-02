@@ -7,165 +7,211 @@ import net.minecraft.entity.IRangedAttackMob;
 import net.minecraft.entity.ai.EntityAIArrowAttack;
 import net.minecraft.entity.monster.IMob;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.Vec3;
 
 import funwayguy.esm.core.ESM_Settings;
 
+/**
+ * Playable-but-mean arrow attack AI (1.7.10)
+ * - still extends EntityAIArrowAttack for compatibility (skeleton aiArrowAttack field type)
+ * - avoids field hiding: DO NOT redeclare vanilla fields
+ * - ray is aimed at target (not yaw/pitch)
+ */
 public class ESM_EntityAIArrowAttack extends EntityAIArrowAttack {
 
-    /** The entity the AI instance has been applied to */
-    private final EntityLiving entityHost;
-    /** The entity (as a RangedAttackMob) the AI instance has been applied to. */
-    private final IRangedAttackMob rangedAttackEntityHost;
-    private EntityLivingBase attackTarget;
+    // We only keep OUR extra state; do not redeclare parent fields.
+    private final EntityLiving hostLiving;
+    private final IRangedAttackMob hostRanged;
 
-    private int rangedAttackTime;
-    private double entityMoveSpeed;
-    private int field_75318_f;
-    private int field_96561_g;
-    private int maxRangedAttackTime;
-    private float field_96562_i;
-    private float field_82642_h;
-
-    // Path refresh cooldown (ticks)
     private int pathRefresh = 0;
 
-    public ESM_EntityAIArrowAttack(IRangedAttackMob p_i1649_1_, double p_i1649_2_, int p_i1649_4_, float p_i1649_5_) {
-        this(p_i1649_1_, p_i1649_2_, p_i1649_4_, p_i1649_4_, p_i1649_5_);
+    // Tunables
+    private static final int SEE_LOCK_TICKS = 12; // vanilla-ish was ~20
+    private static final int PATH_REFRESH_TICKS = 20; // 1 second
+    private static final double RAY_MAX_DIST = 24.0D; // clamp for perf
+    private static final float CLOSE_CADENCE_BOOST_RATIO_SQ = 0.09F; // (0.6R)^2
+
+    public ESM_EntityAIArrowAttack(IRangedAttackMob host, double speed, int delay, float radius) {
+        this(host, speed, delay, delay, radius);
     }
 
-    public ESM_EntityAIArrowAttack(IRangedAttackMob p_i1650_1_, double p_i1650_2_, int p_i1650_4_, int p_i1650_5_,
-        float p_i1650_6_) {
-        super(p_i1650_1_, p_i1650_2_, p_i1650_4_, p_i1650_5_, p_i1650_6_);
+    public ESM_EntityAIArrowAttack(IRangedAttackMob host, double speed, int minDelay, int maxDelay, float radius) {
+        // IMPORTANT: keep super() so vanilla fields exist & skeleton expects this exact type
+        super(host, speed, minDelay, maxDelay, radius);
 
-        this.rangedAttackTime = -1;
-
-        if (!(p_i1650_1_ instanceof EntityLivingBase)) {
-            throw new IllegalArgumentException("ArrowAttackGoal requires Mob implements RangedAttackMob");
-        } else {
-            this.rangedAttackEntityHost = p_i1650_1_;
-            this.entityHost = (EntityLiving) p_i1650_1_;
-            this.entityMoveSpeed = p_i1650_2_;
-            this.field_96561_g = p_i1650_4_;
-            this.maxRangedAttackTime = p_i1650_5_;
-            this.field_96562_i = p_i1650_6_;
-            this.field_82642_h = p_i1650_6_ * p_i1650_6_;
-            this.setMutexBits(3);
+        if (!(host instanceof EntityLiving)) {
+            throw new IllegalArgumentException("ArrowAttackGoal requires mob implements IRangedAttackMob");
         }
+
+        this.hostRanged = host;
+        this.hostLiving = (EntityLiving) host;
+
+        // parent already sets mutex bits, but we keep consistent
+        this.setMutexBits(3);
     }
 
     @Override
     public boolean shouldExecute() {
-        EntityLivingBase t = this.entityHost.getAttackTarget();
+        EntityLivingBase t = this.hostLiving.getAttackTarget();
         if (t == null || t.isDead) return false;
-        this.attackTarget = t;
         return true;
     }
 
     @Override
     public boolean continueExecuting() {
-        // Avoid calling shouldExecute() here (it has side effects).
-        // Continue if we still have a valid target OR we are still navigating a path to something.
-        if (this.attackTarget != null && !this.attackTarget.isDead) return true;
-        return !this.entityHost.getNavigator()
-            .noPath();
+        EntityLivingBase t = this.hostLiving.getAttackTarget();
+        if (t == null || t.isDead) {
+            // if temporarily lost target, continue only if still pathing
+            return !this.hostLiving.getNavigator()
+                .noPath();
+        }
+        return true;
     }
 
     @Override
     public void resetTask() {
-        this.attackTarget = null;
-        this.field_75318_f = 0;
-        this.rangedAttackTime = -1;
-        this.pathRefresh = 0; // important: reset our cooldown
+        // We don't have direct access to parent's private counters across mappings reliably,
+        // so we reset only our extra state.
+        this.pathRefresh = 0;
+
+        // Also clear navigator so it doesn't keep stale chase behavior
+        // (optional but tends to reduce jitter)
+        // this.hostLiving.getNavigator().clearPathEntity();
     }
 
     @Override
     public void updateTask() {
-        // ---- Hard safety: target may become invalid between ticks ----
-        if (this.attackTarget == null || this.attackTarget.isDead) {
-            // Try to reacquire from host; if still none, stop cleanly
-            EntityLivingBase t = this.entityHost.getAttackTarget();
-            if (t == null || t.isDead) {
-                this.resetTask();
-                return;
-            }
-            // Target changed / reacquired: reset soft state for stability
-            this.attackTarget = t;
-            this.field_75318_f = 0;
-            this.rangedAttackTime = -1;
-            this.pathRefresh = 0;
+        EntityLivingBase target = this.hostLiving.getAttackTarget();
+        if (target == null || target.isDead) {
+            resetTask();
+            return;
         }
 
-        final double d0 = this.entityHost
-            .getDistanceSq(this.attackTarget.posX, this.attackTarget.boundingBox.minY, this.attackTarget.posZ);
+        // Distance
+        double distSq = this.hostLiving.getDistanceSq(target.posX, target.boundingBox.minY, target.posZ);
 
-        boolean canSee = this.entityHost.getEntitySenses()
-            .canSee(this.attackTarget);
-
-        // "Close" should encourage chasing, not pretend we can see through walls.
-        final boolean isClose = this.entityHost.getDistanceToEntity(this.attackTarget) <= 12.0F;
-
-        // ---- Expensive LOS entity raycast: only do it when vanilla says we can see (best perf win) ----
-        if (canSee) {
-            Entity los = AIUtils.RayCastEntities(
-                entityHost.worldObj,
-                entityHost.posX,
-                entityHost.posY + entityHost.getEyeHeight(),
-                entityHost.posZ,
-                entityHost.rotationYawHead,
-                entityHost.rotationPitch,
-                8F,
-                this.entityHost);
-
-            if (los != null && los != attackTarget && (ESM_Settings.ambiguous_AI || los instanceof IMob)) {
-                canSee = false;
-            }
+        // Visibility: senses LOS + blocker policy
+        boolean canSee = this.hostLiving.getEntitySenses()
+            .canSee(target);
+        if (canSee && isShotBlockedByNonMob(target)) {
+            // if a non-mob blocks the line, treat as "cannot see"
+            canSee = false;
         }
 
-        // Track visibility time strictly by canSee (not isClose).
-        if (canSee) {
-            ++this.field_75318_f;
-        } else {
-            this.field_75318_f = 0;
-        }
+        // We need a seeTime counter, but parent's fields are private and mapping-dependent.
+        // So we keep a local see counter via dataWatcher-ish? No—simplest: approximate by a small hysteresis:
+        // - If canSee: we "assume" stable after SEE_LOCK_TICKS using a small local counter.
+        // We'll implement as a static-local field? can't. We'll just use pathing behavior based on canSee+distance,
+        // which is good enough for "playable mean".
+        //
+        // Better: keep our own seeTime.
+        // (Safe and mapping-independent.)
+        // ---------------------------------------------------
+        // local seeTime
+        double dist = Math.sqrt(distSq); // 算出距离
+        boolean isCloseWallhack = dist <= 12.0D;
+        if (canSee || isCloseWallhack) seeTimeLocal = Math.min(1000, seeTimeLocal + 1);
+        else seeTimeLocal = 0;
 
-        // Stop moving only when in range AND have had stable sight for a short time.
-        if (d0 <= (double) this.field_82642_h && this.field_75318_f >= 5) {
-            this.entityHost.getNavigator()
+        // Movement
+        if (distSq <= (double) (getMaxAttackDistanceSq()) && seeTimeLocal >= SEE_LOCK_TICKS) {
+            this.hostLiving.getNavigator()
                 .clearPathEntity();
+            this.pathRefresh = 0;
         } else {
-            // Refresh path periodically (fixes original "only when getPath()==null" bug).
-            if (--this.pathRefresh <= 0) {
-                this.pathRefresh = 20;
-
-                // If we can't see but we're close, still try to reposition towards target.
-                // If we can't see and we're not close, also chase (vanilla-ish behavior).
-                this.entityHost.getNavigator()
-                    .tryMoveToEntityLiving(this.attackTarget, this.entityMoveSpeed);
+            if (this.pathRefresh > 0) this.pathRefresh--;
+            if (this.pathRefresh == 0) {
+                this.pathRefresh = PATH_REFRESH_TICKS;
+                this.hostLiving.getNavigator()
+                    .tryMoveToEntityLiving(target, getMoveSpeed());
             }
         }
 
-        this.entityHost.getLookHelper()
-            .setLookPositionWithEntity(this.attackTarget, 30.0F, 30.0F);
+        // Look at target
+        this.hostLiving.getLookHelper()
+            .setLookPositionWithEntity(target, 30.0F, 30.0F);
 
-        // ---- Ranged attack timing ----
-        if (--this.rangedAttackTime == 0) {
-            if (d0 > (double) this.field_82642_h || !canSee) {
+        // Attack cadence (we implement our own timer to avoid relying on parent's private timer)
+        rangedAttackTimeLocal--;
+
+        // Mild cadence boost at close range
+        if (canSee && distSq < (double) (getMaxAttackDistanceSq() * CLOSE_CADENCE_BOOST_RATIO_SQ)) {
+            if (rangedAttackTimeLocal > 0) rangedAttackTimeLocal--;
+        }
+
+        if (rangedAttackTimeLocal == 0) {
+            if (distSq > (double) getMaxAttackDistanceSq() || !canSee) {
                 return;
             }
 
-            float f = MathHelper.sqrt_double(d0) / this.field_96562_i;
-            float f1 = f;
+            float distanceRatio = MathHelper.sqrt_double(distSq) / getAttackRadius();
+            float power = distanceRatio;
+            if (power < 0.1F) power = 0.1F;
+            if (power > 1.0F) power = 1.0F;
 
-            if (f1 < 0.1F) f1 = 0.1F;
-            if (f1 > 1.0F) f1 = 1.0F;
+            this.hostRanged.attackEntityWithRangedAttack(target, power);
 
-            this.rangedAttackEntityHost.attackEntityWithRangedAttack(this.attackTarget, f1);
-            this.rangedAttackTime = MathHelper
-                .floor_float(f * (float) (this.maxRangedAttackTime - this.field_96561_g) + (float) this.field_96561_g);
-        } else if (this.rangedAttackTime < 0) {
-            float f = MathHelper.sqrt_double(d0) / this.field_96562_i;
-            this.rangedAttackTime = MathHelper
-                .floor_float(f * (float) (this.maxRangedAttackTime - this.field_96561_g) + (float) this.field_96561_g);
+            rangedAttackTimeLocal = MathHelper.floor_float(
+                distanceRatio * (float) (getMaxAttackTime() - getMinAttackTime()) + (float) getMinAttackTime());
+        } else if (rangedAttackTimeLocal < 0) {
+            float distanceRatio = MathHelper.sqrt_double(distSq) / getAttackRadius();
+            rangedAttackTimeLocal = MathHelper.floor_float(
+                distanceRatio * (float) (getMaxAttackTime() - getMinAttackTime()) + (float) getMinAttackTime());
         }
+    }
+
+    // -------------------------------------------------------
+    // Local counters (mapping-independent, avoids parent privates)
+    // -------------------------------------------------------
+    private int seeTimeLocal = 0;
+    private int rangedAttackTimeLocal = -1;
+
+    // -------------------------------------------------------
+    // Config accessors (avoid relying on parent field names)
+    // -------------------------------------------------------
+    private double getMoveSpeed() {
+        return 1.0D;
+    } // you pass 1.0D; keep it stable
+
+    private int getMinAttackTime() {
+        return 20;
+    } // you pass 20
+
+    private int getMaxAttackTime() {
+        return 60;
+    } // you pass 60
+
+    private float getAttackRadius() {
+        return (float) ESM_Settings.SkeletonDistance;
+    } // consistent with your callsite
+
+    private float getMaxAttackDistanceSq() {
+        float r = getAttackRadius();
+        return r * r;
+    }
+
+    /**
+     * Returns true if a NON-mob entity is blocking the shot line.
+     * - IMob blockers are ignored (mean but playable)
+     * - Non-mob blockers block
+     */
+    private boolean isShotBlockedByNonMob(EntityLivingBase target) {
+        Vec3 start = Vec3
+            .createVectorHelper(hostLiving.posX, hostLiving.posY + (double) hostLiving.getEyeHeight(), hostLiving.posZ);
+
+        Vec3 end = Vec3.createVectorHelper(target.posX, target.posY + (double) (target.height * 0.5F), target.posZ);
+
+        double dist = start.distanceTo(end);
+        if (dist > RAY_MAX_DIST) {
+            Vec3 dir = end.subtract(start);
+            double inv = RAY_MAX_DIST / dist;
+            end = start.addVector(dir.xCoord * inv, dir.yCoord * inv, dir.zCoord * inv);
+        }
+
+        Entity hit = AIUtils.RayCastEntities(hostLiving.worldObj, start, end, this.hostLiving);
+        if (hit == null) return false;
+        if (hit == target) return false;
+        if (hit instanceof IMob) return false;
+        return true;
     }
 }

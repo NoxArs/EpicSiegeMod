@@ -28,11 +28,11 @@ public class ESM_EntityAIAttackEvasion extends EntityAIBase {
         }
     };
     /** The entity we are attached to */
-    private EntityCreature theEntity;
-    private double farSpeed;
-    private double nearSpeed;
+    private final EntityCreature theEntity;
+    private final double farSpeed;
+    private final double nearSpeed;
     private EntityPlayer closestLivingEntity;
-    private float distanceFromEntity;
+    private final float distanceFromEntity;
     /** The PathEntity of our entity */
     private PathEntity entityPathEntity;
 
@@ -53,7 +53,6 @@ public class ESM_EntityAIAttackEvasion extends EntityAIBase {
             return false;
         }
 
-        @SuppressWarnings("unchecked")
         List<EntityMob> attackers = this.theEntity.worldObj.selectEntitiesWithinAABB(
             EntityMob.class,
             this.theEntity.boundingBox.expand(16D, 16D, 16D),
@@ -62,13 +61,10 @@ public class ESM_EntityAIAttackEvasion extends EntityAIBase {
             return false;
         }
 
-        @SuppressWarnings("unchecked")
         List<EntityPlayer> list = this.theEntity.worldObj.selectEntitiesWithinAABB(
             EntityPlayer.class,
-            this.theEntity.boundingBox.expand(
-                (double) this.distanceFromEntity,
-                (double) this.distanceFromEntity,
-                (double) this.distanceFromEntity),
+            this.theEntity.boundingBox
+                .expand(this.distanceFromEntity, this.distanceFromEntity, this.distanceFromEntity),
             this.field_98218_a);
 
         if (list.isEmpty()) {
@@ -130,7 +126,7 @@ public class ESM_EntityAIAttackEvasion extends EntityAIBase {
             } else {
                 this.entityPathEntity = this.theEntity.getNavigator()
                     .getPathToXYZ(vec3.xCoord, vec3.yCoord, vec3.zCoord);
-                return this.entityPathEntity == null ? false : this.entityPathEntity.isDestinationSame(vec3);
+                return this.entityPathEntity != null && this.entityPathEntity.isDestinationSame(vec3);
             }
     }
 
@@ -158,12 +154,7 @@ public class ESM_EntityAIAttackEvasion extends EntityAIBase {
                 if (d0 < 0.0001D) d0 = 0.0001D;
                 vec31 = vec31.normalize();
                 double d1 = vec3.dotProduct(vec31);
-
-                if (d1 > 0.5D - 0.025D / d0) {
-                    return true;
-                } else {
-                    return false;
-                }
+                return d1 > 0.5D - 0.025D / d0;
             }
     }
 

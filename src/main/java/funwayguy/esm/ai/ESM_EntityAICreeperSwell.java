@@ -25,21 +25,15 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
 
     private final EntityCreeper swellingCreeper;
     private EntityLivingBase creeperAttackTarget;
-
-    /** base trigger distance squared (from explosion radius) */
     private final double triggerDistSqBase;
-
-    /** lock-on ticks */
     private int detLockTicks = 0;
-
-    /** squad logic caching */
     private int diggerCheckCooldown = 0;
     private boolean cachedHasDigger = false;
 
     // ---- tunables ----
     private static final int LOCK_TICKS_PROX = 15; // proximity ignite lock
     private static final int LOCK_TICKS_BREACH = 8; // breaching lock to avoid flicker
-    private static final double BREACH_MAX_Y_DIFF = 10.5D;
+    private static final double BREACH_MAX_Y_DIFF = 4.0D;
     private static final double RAYTRACE_DIST = 1.8D;
 
     // wall thickness policy
@@ -48,10 +42,8 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
 
     public ESM_EntityAICreeperSwell(EntityCreeper creeper) {
         this.swellingCreeper = creeper;
-
         double base = (double) getCreeperRadius(creeper) + 0.5D;
         this.triggerDistSqBase = base * base;
-
         if (!ESM_Settings.CreeperChargers) {
             this.setMutexBits(1);
         }
@@ -95,14 +87,10 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
     @Override
     public void updateTask() {
         this.creeperAttackTarget = this.swellingCreeper.getAttackTarget();
-
-        // squad cache
         if (--diggerCheckCooldown <= 0) {
             diggerCheckCooldown = 20;
             cachedHasDigger = CheckForDiggers();
         }
-
-        // lock-on: force ignite, and optionally speed
         if (detLockTicks > 0) {
             detLockTicks--;
             if (ESM_Settings.CreeperChargers) {
@@ -111,9 +99,7 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
             this.swellingCreeper.setCreeperState(1);
             return;
         }
-
         boolean ignite = checkBreachOrIgnite(this.creeperAttackTarget);
-
         if (ignite) {
             boolean breaching = (ESM_Settings.CreeperBreaching && isBreachingCondition(this.creeperAttackTarget));
             if (detLockTicks == 0) {
@@ -125,26 +111,13 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
         }
     }
 
-    /**
-     * Unified ignite decision: proximity ignite OR tactical breaching ignite.
-     */
     private boolean checkBreachOrIgnite(EntityLivingBase target) {
         if (target == null || !target.isEntityAlive()) return false;
-
-        // already ignited -> maintain
         if (this.swellingCreeper.getCreeperState() > 0) return true;
-
-        // proximity ignite (vanilla-like)
         double distSq = this.swellingCreeper.getDistanceSqToEntity(target);
-
-        // chargers: want "2x radius" -> squared threshold is 4x
-        double triggerSq = this.triggerDistSqBase * (ESM_Settings.CreeperChargers ? 4.0D : 1.0D);
+        double triggerSq = this.triggerDistSqBase * (ESM_Settings.CreeperChargers ? 2.0D : 1.0D);
         if (distSq <= triggerSq) return true;
-
-        // breaching ignite
-        if (ESM_Settings.CreeperBreaching && isBreachingCondition(target)) return true;
-
-        return false;
+        return ESM_Settings.CreeperBreaching && isBreachingCondition(target);
     }
 
     /**
@@ -166,8 +139,6 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
         if (cachedHasDigger) return false;
 
         if (Math.abs(swellingCreeper.posY - target.posY) > BREACH_MAX_Y_DIFF) return false;
-
-        // MUST be stuck AND cannot see
         if (!swellingCreeper.getNavigator()
             .noPath()) return false;
         if (swellingCreeper.getEntitySenses()
@@ -175,22 +146,14 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
 
         MovingObjectPosition mop = GetMovingObjectPosition(swellingCreeper, RAYTRACE_DIST, false);
         if (mop == null || mop.typeOfHit != MovingObjectType.BLOCK) return false;
-
-        // Only breach side faces: 2/3/4/5 are sides; 0/1 are bottom/top
         if (mop.sideHit == 0 || mop.sideHit == 1) return false;
-
-        // Compute thickness into the wall along face normal (more accurate than lookVec)
         int thickness = getWallThicknessFromSideHit(swellingCreeper.worldObj, mop, WALL_MAX_CHECK);
         return thickness <= WALL_MAX_THICKNESS;
     }
 
-    // =========================================================
-    // Squad logic
-    // =========================================================
     public boolean CheckForDiggers() {
         if (!ESM_Settings.ZombieDiggers) return false;
 
-        @SuppressWarnings("unchecked")
         List<EntityZombie> zombieList = this.swellingCreeper.worldObj
             .getEntitiesWithinAABB(EntityZombie.class, this.swellingCreeper.boundingBox.expand(10D, 10D, 10D));
 
@@ -215,9 +178,6 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
         return false;
     }
 
-    // =========================================================
-    // Raytrace helper (same as yours)
-    // =========================================================
     public static MovingObjectPosition GetMovingObjectPosition(EntityLivingBase entity, double distance,
         boolean liquids) {
         float f = 1.0F;
@@ -244,14 +204,9 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
         return entity.worldObj.func_147447_a(src, dst, liquids, !liquids, false);
     }
 
-    // =========================================================
-    // Wall thickness by face normal
-    // =========================================================
     private static int getWallThicknessFromSideHit(World world, MovingObjectPosition hit, int maxCheck) {
         if (world == null || hit == null || hit.hitVec == null) return Integer.MAX_VALUE;
 
-        // Direction vector going INTO the wall based on sideHit
-        // sideHit: 2=-Z, 3=+Z, 4=-X, 5=+X
         int stepX = 0, stepY = 0, stepZ = 0;
         switch (hit.sideHit) {
             case 2:
@@ -267,10 +222,9 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
                 stepX = 1;
                 break;
             default:
-                return Integer.MAX_VALUE; // top/bottom shouldn't come here
+                return Integer.MAX_VALUE;
         }
 
-        // Start just inside the hit face
         int bx = hit.blockX;
         int by = hit.blockY;
         int bz = hit.blockZ;
@@ -283,19 +237,12 @@ public class ESM_EntityAICreeperSwell extends EntityAIBase {
             bz += stepZ;
 
             Block block = world.getBlock(bx, by, bz);
-
-            // "Wall ended" when we hit air/replaceable/non-opaque
             if (block == null) return thickness;
-
-            // Most robust "air/empty" tests for 1.7.10
             if (block.isAir(world, bx, by, bz)) return thickness;
-
             Material m = block.getMaterial();
             if (m == null) return thickness;
-
             if (m.isReplaceable()) return thickness;
             if (!block.isOpaqueCube()) return thickness;
-
             thickness++;
         }
 

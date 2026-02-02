@@ -124,7 +124,7 @@ public class ESM_EntityAIAttackOnCollide extends EntityAIAttackOnCollide {
             .setLookPositionWithEntity(entitylivingbase, 30.0F, 30.0F);
         double d0 = this.attacker
             .getDistanceSq(entitylivingbase.posX, entitylivingbase.boundingBox.minY, entitylivingbase.posZ);
-        double d1 = (double) (this.attacker.width * 2.0F * this.attacker.width * 2.0F + entitylivingbase.width);
+        double d1 = this.attacker.width * 2.0F * this.attacker.width * 2.0F + entitylivingbase.width;
         --this.field_75445_i;
 
         if ((this.longMemory || this.attacker.getEntitySenses()

@@ -11,9 +11,9 @@ import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.registry.EntityRegistry;
-import funwayguy.esm.ai.interop.ModAccessors;
 import funwayguy.esm.core.proxies.CommonProxy;
 import funwayguy.esm.entities.EntityESMGhast;
+import funwayguy.esm.entities.EntityZombieBoat;
 import funwayguy.esm.handlers.ESM_EventManager;
 
 @Mod(
@@ -46,15 +46,14 @@ public class ESM {
         FMLCommonHandler.instance()
             .bus()
             .register(manager);
-        // CosmicDan - unofficial fork, remove update stuff
-        // FMLCommonHandler.instance().bus().register(new ESM_UpdateNotification());
 
         int ghastID = EntityRegistry.findGlobalUniqueEntityId();
         EntityRegistry.registerGlobalEntityID(EntityESMGhast.class, "ESM_Ghast", ghastID);
         EntityRegistry.registerModEntity(EntityESMGhast.class, "ESM_Ghast", ghastID, instance, 128, 1, true);
 
-        // load cross-mod compatibility
-        ModAccessors.init();
+        EntityRegistry.registerModEntity(EntityZombieBoat.class, "ESM_Boat", 1, instance, 80, 3, true);
+
+        proxy.registerRenderers();
     }
 
     @EventHandler

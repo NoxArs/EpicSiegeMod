@@ -175,27 +175,13 @@ public class ESMPathNavigator extends PathNavigate {
         return pathentity;
     }
 
-    // -----------------------------
-    // Custom canNavigate
-    // -----------------------------
-
     private boolean canNavigateCustom() {
         EntityLiving e = this.owner;
         if (e == null) return false;
-
         if (e.onGround) return true;
-
         if (this.canSwim && (e.isInWater() || e.handleLavaMovement())) return true;
-
-        // chicken jockey zombie special case
-        if (e.isRiding() && (e instanceof EntityZombie) && (e.ridingEntity instanceof EntityChicken)) return true;
-
-        return false;
+        return e.isRiding() && (e instanceof EntityZombie) && (e.ridingEntity instanceof EntityChicken);
     }
-
-    // -----------------------------
-    // Setters: keep caches in sync (PathFinder args use caches)
-    // -----------------------------
 
     @Override
     public void setCanSwim(boolean flag) {

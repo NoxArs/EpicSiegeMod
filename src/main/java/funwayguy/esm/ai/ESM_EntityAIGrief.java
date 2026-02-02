@@ -1,11 +1,13 @@
 package funwayguy.esm.ai;
 
 import net.minecraft.block.Block;
-import net.minecraft.block.material.*;
+import net.minecraft.block.material.Material;
+import net.minecraft.block.material.MaterialLiquid;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.ai.EntityAIBase;
 import net.minecraft.init.Blocks;
 import net.minecraft.init.Items;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemPickaxe;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.MathHelper;
@@ -18,161 +20,154 @@ import funwayguy.esm.core.ESM_Utils;
 
 public class ESM_EntityAIGrief extends EntityAIBase {
 
-    EntityLiving entityLiving;
-    int markedX, markedY, markedZ;
-    boolean hasMarked;
-    int digTick = 0;
-    double reachDistSq = 16.0D; // distance squared (I think?) of reach distance
-    int pathRetry = 0;
-    final boolean TOOLS_NERFED;
+    private final EntityLiving entityLiving;
+
+    private int markedX, markedY, markedZ;
+    private boolean hasMarked;
+
+    private int digTick = 0;
+    private int pathRetry = 0;
+
+    /** reach distance squared */
+    private final double reachDistSq = 16.0D;
+
+    /** True if some mod nerfs vanilla pickaxe harvestability (e.g., Iguana Tweaks) */
+    private final boolean TOOLS_NERFED;
+
+    /** Throttle scanning; replaces ticksExisted % 5 gate */
+    private int scanCooldown = 0;
 
     public ESM_EntityAIGrief(EntityLiving entity) {
         this.entityLiving = entity;
-        TOOLS_NERFED = !Items.iron_pickaxe.canHarvestBlock(Blocks.stone, new ItemStack(Items.iron_pickaxe));
-
+        this.TOOLS_NERFED = !Items.iron_pickaxe.canHarvestBlock(Blocks.stone, new ItemStack(Items.iron_pickaxe));
     }
 
     @Override
     public boolean shouldExecute() {
-        /*
-         * if(this.entityLiving.getRNG().nextInt(4) != 0) // Severely nerfs how many time the next part of the script
-         * can run
-         * {
-         * return false;
-         * }
-         */
+        if (!isTimeAllowed()) return false;
+        if (entityLiving.getAttackTarget() != null) return false;
 
-        if (!ESM_Settings.ZombieGriefBlocksAnyTime) if (ESM_Settings.ZombieEnhancementsOnlyWhenSiegeAllowed)
-            if (!ESM_Utils.isSiegeAllowed(entityLiving.worldObj.getWorldTime())) return false;
-
-        // Returns true if something like Iguana Tweaks is nerfing the vanilla picks. This will then cause zombies to
-        // ignore the harvestability of blocks when holding picks
-        int i = MathHelper.floor_double(entityLiving.posX);
-        int j = MathHelper.floor_double(entityLiving.posY);
-        int k = MathHelper.floor_double(entityLiving.posZ);
-
-        if (entityLiving.getAttackTarget() != null) {
+        // throttle
+        if (scanCooldown > 0) {
+            scanCooldown--;
             return false;
         }
 
-        ItemStack item = entityLiving.getEquipmentInSlot(0);
+        final int baseX = MathHelper.floor_double(entityLiving.posX);
+        final int baseY = MathHelper.floor_double(entityLiving.posY);
+        final int baseZ = MathHelper.floor_double(entityLiving.posZ);
 
-        if ((entityLiving.ticksExisted % 5) != 0) return false;
-        int checks = 0;
-        while (checks < ESM_Settings.ZombieGriefBlocksTriesPerTick) {
-            int checkX = i + entityLiving.getRNG()
-                .nextInt(ESM_Settings.ZombieGriefBlocksRangeXZ * 2) - ESM_Settings.ZombieGriefBlocksRangeXZ;
-            int checkY = j + entityLiving.getRNG()
-                .nextInt(ESM_Settings.ZombieGriefBlocksRangeY * 2) - ESM_Settings.ZombieGriefBlocksRangeY;
-            int checkZ = k + entityLiving.getRNG()
-                .nextInt(ESM_Settings.ZombieGriefBlocksRangeXZ * 2) - ESM_Settings.ZombieGriefBlocksRangeXZ;
+        final ItemStack held = entityLiving.getEquipmentInSlot(0);
+        final BlockAndMeta[] griefList = ESM_Settings.getZombieGriefBlocks();
+        if (griefList == null) return false;
+        final int tries = Math.max(0, ESM_Settings.ZombieGriefBlocksTriesPerTick);
+        boolean didScan = false;
 
-            Block block = entityLiving.worldObj.getBlock(checkX, checkY, checkZ);
-            if (block.getMaterial() instanceof MaterialLiquid || block.getMaterial() instanceof MaterialTransparent) {
-                checks++;
-                continue;
-            }
-            int meta = entityLiving.worldObj.getBlockMetadata(checkX, checkY, checkZ);
+        for (int n = 0; n < tries; n++) {
+            didScan = true;
 
-            if ((BlockAndMeta.isInBlockAndMetaList(block, meta, ESM_Settings.getZombieGriefBlocks())
-                || (ESM_Settings.ZombieGriefBlocksLightSources && block.getLightValue() > 0))
-                && block.getBlockHardness(entityLiving.worldObj, checkX, checkY, checkZ) >= 0) {
-                if (!ESM_Settings.ZombieDiggerTools || ESM_Settings.ZombieGriefBlocksNoTool
-                    || (item != null && (item.getItem()
-                        .canHarvestBlock(block, item)
-                        || (item.getItem() instanceof ItemPickaxe && TOOLS_NERFED
-                            && block.getMaterial() == Material.rock)))
-                    || block.getMaterial()
-                        .isToolNotRequired()) {
-                    markedX = checkX;
-                    markedY = checkY;
-                    markedZ = checkZ;
-                    pathRetry = 0;
-                    hasMarked = true;
-                    entityLiving.getNavigator()
-                        .tryMoveToXYZ(markedX, markedY, markedZ, 1D);
-                    digTick = 0;
-                    return true;
-                }
-            }
-            checks++;
+            int x = baseX + randRange(ESM_Settings.ZombieGriefBlocksRangeXZ);
+            int y = baseY + randRange(ESM_Settings.ZombieGriefBlocksRangeY);
+            int z = baseZ + randRange(ESM_Settings.ZombieGriefBlocksRangeXZ);
+
+            // Y clamp for 1.7.10 worlds (0..255)
+            if (y <= 0 || y >= 255) continue;
+
+            Block block = entityLiving.worldObj.getBlock(x, y, z);
+            if (block == null || block == Blocks.air) continue;
+
+            Material mat = block.getMaterial();
+            if (mat instanceof MaterialLiquid) continue; // only liquids are force-skipped
+
+            int meta = entityLiving.worldObj.getBlockMetadata(x, y, z);
+
+            if (!isAllowedTargetBlock(block, meta, griefList)) continue;
+
+            // hardness check last
+            if (block.getBlockHardness(entityLiving.worldObj, x, y, z) < 0.0F) continue;
+
+            if (!canDigBlock(block, held)) continue;
+
+            markTarget(x, y, z);
+            scanCooldown = 5; // set after a real scan attempt
+            return true;
         }
+
+        if (didScan) scanCooldown = 5;
         return false;
     }
 
     @Override
     public boolean continueExecuting() {
-        // Returns true if something like Iguana Tweaks is nerfing the vanilla picks. This will then cause zombies to
-        // ignore the harvestability of blocks when holding picks
-
-        if (!hasMarked || !entityLiving.isEntityAlive() || entityLiving.getAttackTarget() != null) {
-            hasMarked = false;
+        if (!hasMarked) return false;
+        if (!entityLiving.isEntityAlive()) return false;
+        if (entityLiving.getAttackTarget() != null) {
+            clearMark();
             return false;
         }
 
         Block block = entityLiving.worldObj.getBlock(markedX, markedY, markedZ);
-        int meta = entityLiving.worldObj.getBlockMetadata(markedX, markedY, markedZ);
-        boolean inList = BlockAndMeta.isInBlockAndMetaList(block, meta, ESM_Settings.getZombieGriefBlocks());
-        boolean allowed = inList || (ESM_Settings.ZombieGriefBlocksLightSources && block.getLightValue() > 0);
-        if (block == Blocks.air || !allowed) {
-            hasMarked = false;
+        if (block == null || block == Blocks.air) {
+            clearMark();
             return false;
         }
 
-        ItemStack item = entityLiving.getEquipmentInSlot(0);
-        return !ESM_Settings.ZombieDiggerTools || ESM_Settings.ZombieGriefBlocksNoTool
-            || (item != null && (item.getItem()
-                .canHarvestBlock(block, item)
-                || (item.getItem() instanceof ItemPickaxe && TOOLS_NERFED && block.getMaterial() == Material.rock)))
-            || block.getMaterial()
-                .isToolNotRequired();
+        final BlockAndMeta[] griefList = ESM_Settings.getZombieGriefBlocks();
+        if (griefList == null) return false;
+        int meta = entityLiving.worldObj.getBlockMetadata(markedX, markedY, markedZ);
 
+        if (!isAllowedTargetBlock(block, meta, griefList)) {
+            clearMark();
+            return false;
+        }
+
+        ItemStack held = entityLiving.getEquipmentInSlot(0);
+        if (!canDigBlock(block, held)) {
+            clearMark();
+            return false;
+        }
+
+        return true;
     }
 
     @Override
     public void updateTask() {
-        // Returns true if something like Iguana Tweaks is nerfing the vanilla picks. This will then cause zombies to
-        // ignore the harvestability of blocks when holding picks
-
         if (!hasMarked || !entityLiving.isEntityAlive() || entityLiving.getAttackTarget() != null) {
-            digTick = 0;
-            hasMarked = false;
+            clearMark();
             return;
         }
 
         Block block = entityLiving.worldObj.getBlock(markedX, markedY, markedZ);
-        if (block == Blocks.air) {
-            digTick = 0;
-            hasMarked = false;
+        if (block == null || block == Blocks.air) {
+            clearMark();
             return;
         }
 
+        // too far: move closer
         if (entityLiving.getDistanceSq(markedX + 0.5D, markedY + 0.5D, markedZ + 0.5D) >= reachDistSq) {
-            // griefable object is too far, need to move closer
             if (entityLiving.getNavigator()
                 .noPath()) {
-                // too far AND can't get a valid path, try and path again
                 entityLiving.getNavigator()
                     .tryMoveToXYZ(markedX, markedY, markedZ, 1D);
                 pathRetry++;
             }
-            if (pathRetry >= 40) // (╯°□°）╯︵ ┻━┻
-                hasMarked = false;
+
+            if (pathRetry >= 40) clearMark();
             digTick = 0;
             return;
         }
 
+        // visibility check (throttled)
         if ((entityLiving.ticksExisted % 10) == 0) {
             if (!canSeeBlockAt(markedX, markedY, markedZ)) {
-                hasMarked = false;
-                digTick = 0;
+                clearMark();
                 return;
             }
         }
 
         digTick++;
 
-        float str = AIUtils.getBlockStrength(
+        float strength = AIUtils.getBlockStrength(
             entityLiving,
             block,
             entityLiving.worldObj,
@@ -181,69 +176,136 @@ public class ESM_EntityAIGrief extends EntityAIBase {
             markedZ,
             !ESM_Settings.ZombieDiggerTools) * (digTick + 1);
 
-        if (str >= 1F) {
-            digTick = 0;
+        if (strength >= 1.0F) {
+            // Re-validate target right before break (world may have changed)
+            final BlockAndMeta[] griefList = ESM_Settings.getZombieGriefBlocks();
+            if (griefList == null) return;
+            int meta = entityLiving.worldObj.getBlockMetadata(markedX, markedY, markedZ);
 
-            if (hasMarked) {
-                ItemStack item = entityLiving.getEquipmentInSlot(0);
-                boolean canHarvest = !ESM_Settings.ZombieDiggerTools || (item != null && (item.getItem()
-                    .canHarvestBlock(block, item)
-                    || (item.getItem() instanceof ItemPickaxe && TOOLS_NERFED && block.getMaterial() == Material.rock)))
-                    || block.getMaterial()
-                        .isToolNotRequired();
-                entityLiving.worldObj.func_147480_a(markedX, markedY, markedZ, canHarvest);
-                hasMarked = false;
-            } else {
-                hasMarked = false;
+            if (!isAllowedTargetBlock(block, meta, griefList)) {
+                clearMark();
+                return;
             }
-        } else {
-            if (digTick % 5 == 0) {
+
+            if (block.getBlockHardness(entityLiving.worldObj, markedX, markedY, markedZ) < 0.0F) {
+                clearMark();
+                return;
+            }
+
+            ItemStack held = entityLiving.getEquipmentInSlot(0);
+            boolean drop = canDigBlock(block, held);
+            entityLiving.worldObj.func_147480_a(markedX, markedY, markedZ, drop);
+
+            clearMark();
+            return;
+        }
+
+        // feedback
+        if (digTick % 5 == 0) {
+            if (block.stepSound != null) {
                 entityLiving.worldObj.playSoundAtEntity(
                     entityLiving,
                     block.stepSound.getStepResourcePath(),
                     block.stepSound.getVolume() + 1F,
                     block.stepSound.getPitch());
-                entityLiving.swingItem();
             }
+            entityLiving.swingItem();
         }
     }
 
-    private boolean canSeeBlockAt(int posX, int posY, int posZ) {
+    private boolean isTimeAllowed() {
+        // Make semantics explicit (keeping YOUR current behavior):
+        // AnyTime => allowed
+        // Otherwise, if "only when siege allowed" is false => still allowed
+        // Otherwise, require siege allowed.
+        if (ESM_Settings.ZombieGriefBlocksAnyTime) return true;
+        if (!ESM_Settings.ZombieEnhancementsOnlyWhenSiegeAllowed) return true;
+        return ESM_Utils.isSiegeAllowed(entityLiving.worldObj.getWorldTime());
+    }
 
-        if (isCollidingWithPotentialTarget(posX, posY, posZ)) return true;
+    private boolean isAllowedTargetBlock(Block block, int meta, BlockAndMeta[] griefList) {
+        if (BlockAndMeta.isInBlockAndMetaList(block, meta, griefList)) return true;
+        return ESM_Settings.ZombieGriefBlocksLightSources && block.getLightValue() > 0;
+    }
 
-        Vec3 thisEntity = Vec3.createVectorHelper(
-            entityLiving.posX,
-            entityLiving.posY + (double) entityLiving.getEyeHeight(),
-            entityLiving.posZ);
-        Vec3 target = Vec3.createVectorHelper(posX, posY, posZ);
-        MovingObjectPosition mop = entityLiving.worldObj.func_147447_a(thisEntity, target, false, false, true);
+    private boolean canDigBlock(Block block, ItemStack held) {
+        if (!ESM_Settings.ZombieDiggerTools) return true;
+        if (ESM_Settings.ZombieGriefBlocksNoTool) return true;
 
-        if (mop == null) return false;
+        Material mat = block.getMaterial();
+        if (mat != null && mat.isToolNotRequired()) return true;
 
-        if (mop.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK)
-            if (mop.blockX == posX && mop.blockY == posY && mop.blockZ == posZ) return true;
+        if (held == null) return false;
+
+        Item item = held.getItem(); // 1.7.10: held != null => item should exist
+        if (item == null) return false; // defensive for broken mod stacks
+
+        if (item.canHarvestBlock(block, held)) return true;
+
+        // legacy exception: if tools nerfed, let any pickaxe dig rock
+        if (TOOLS_NERFED && item instanceof ItemPickaxe && mat == Material.rock) return true;
 
         return false;
     }
 
+    private void markTarget(int x, int y, int z) {
+        markedX = x;
+        markedY = y;
+        markedZ = z;
+
+        hasMarked = true;
+        digTick = 0;
+        pathRetry = 0;
+
+        entityLiving.getNavigator()
+            .tryMoveToXYZ(markedX, markedY, markedZ, 1D);
+    }
+
+    private void clearMark() {
+        hasMarked = false;
+        digTick = 0;
+        pathRetry = 0;
+    }
+
+    private int randRange(int range) {
+        if (range <= 0) return 0;
+        return entityLiving.getRNG()
+            .nextInt(range * 2 + 1) - range;
+    }
+
+    private boolean canSeeBlockAt(int posX, int posY, int posZ) {
+        if (isCollidingWithPotentialTarget(posX, posY, posZ)) return true;
+
+        Vec3 eye = Vec3.createVectorHelper(
+            entityLiving.posX,
+            entityLiving.posY + (double) entityLiving.getEyeHeight(),
+            entityLiving.posZ);
+
+        // Aim at center
+        Vec3 target = Vec3.createVectorHelper(posX + 0.5D, posY + 0.5D, posZ + 0.5D);
+
+        MovingObjectPosition mop = entityLiving.worldObj.func_147447_a(eye, target, false, false, true);
+        if (mop == null) return false;
+
+        if (mop.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
+            return mop.blockX == posX && mop.blockY == posY && mop.blockZ == posZ;
+        }
+        return false;
+    }
+
     private boolean isCollidingWithPotentialTarget(int posX, int posY, int posZ) {
-        // entity might be colliding (or arrived) already....
-        // ...no need to ray-trace. Allow grief if target is no more than 1 block away from the mob.
-        if (isWithinRangeOf(posX, MathHelper.floor_double(entityLiving.posX), 1)) {
-            if (isWithinRangeOf(posZ, MathHelper.floor_double(entityLiving.posZ), 1)) {
-                if (isWithinRangeOf(
-                    posY,
-                    MathHelper.floor_double(entityLiving.posY + (double) entityLiving.getEyeHeight()),
-                    1)) return true;
-                // also check from feet-level. I've heard Zombies can kick.
-                if (isWithinRangeOf(posY, MathHelper.floor_double(entityLiving.posY), 1)) return true;
-            }
+        if (isWithinRangeOf(posX, MathHelper.floor_double(entityLiving.posX), 1)
+            && isWithinRangeOf(posZ, MathHelper.floor_double(entityLiving.posZ), 1)) {
+            int eyeY = MathHelper.floor_double(entityLiving.posY + (double) entityLiving.getEyeHeight());
+            if (isWithinRangeOf(posY, eyeY, 1)) return true;
+
+            int feetY = MathHelper.floor_double(entityLiving.posY);
+            if (isWithinRangeOf(posY, feetY, 1)) return true;
         }
         return false;
     }
 
     private boolean isWithinRangeOf(int from, int to, int range) {
-        return (Math.abs(from - to) <= range) ? true : false;
+        return Math.abs(from - to) <= range;
     }
 }

@@ -236,36 +236,25 @@ public class ESM_EventManager {
         } else if (event.entity.getClass() == EntityArrow.class) // Changed because other people like replacing arrows
                                                                  // and not saying they did
         {
-            // 只处理原版箭，避免和其他 mod 的箭子类冲突
             final EntityArrow arrow = (EntityArrow) event.entity;
-
-            // 已经是我们处理/生成过的箭：不要再劫持，否则可能递归/翻倍
             if (arrow.getEntityData()
                 .getBoolean("ESM_MODIFIED")) {
                 return;
             }
-
-            // 必须是敌对生物射出的箭
             if (!(arrow.shootingEntity instanceof EntityLiving) || !(arrow.shootingEntity instanceof IMob)) {
                 return;
             }
 
             final EntityLiving shooter = (EntityLiving) arrow.shootingEntity;
-
-            // 目标为空就别折腾，放行原箭（否则你取消事件就等于“吞箭”）
             final EntityLivingBase target = shooter.getAttackTarget();
             if (target == null || target.isDead || target.getHealth() <= 0.0F) {
                 return;
             }
-
-            // 用我们自己的逻辑生成“增强箭”
             replaceArrowAttack(shooter, target, arrow.getDamage());
-
-            // 取消原箭生成，避免世界里出现两支箭（原箭 + 新箭）
             arrow.getEntityData()
                 .setBoolean("ESM_MODIFIED", true);
             event.setCanceled(true);
-            event.entity.setDead(); // 多一层保险：确保原箭不留下
+            event.entity.setDead();
             return;
         } else if (event.entity instanceof EntityPotion) {
             EntityPotion potion = (EntityPotion) event.entity;
@@ -787,7 +776,6 @@ public class ESM_EventManager {
         }
     }
 
-    @SuppressWarnings("unchecked")
     @SubscribeEvent
     public void onLivingUpdate(LivingUpdateEvent event) {
         if (event.entity.worldObj.isRemote) return;

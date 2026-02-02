@@ -20,146 +20,149 @@ import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeHooks;
 
-/**
- * A class made for some additional functions used and shared among the new AI systems
- */
 public class AIUtils {
+    private static final boolean NERFED_PICKAXES = !Items.iron_pickaxe
+        .canHarvestBlock(Blocks.stone, new ItemStack(Items.iron_pickaxe));
+    private static final float RADIAN = 0.017453292F;
 
     public static float getBreakSpeed(EntityLiving entityLiving, ItemStack stack, Block block, int meta) {
-        float f = (stack == null ? 1.0F
+        // Use the passed stack if possible, otherwise fallback to held item
+        if (stack == null) stack = entityLiving.getEquipmentInSlot(0);
+
+        float speed = (stack == null ? 1.0F
             : stack.getItem()
                 .getDigSpeed(stack, block, meta));
 
-        if (f > 1.0F) {
-            int i = EnchantmentHelper.getEfficiencyModifier(entityLiving);
-            ItemStack itemstack = entityLiving.getEquipmentInSlot(0);
-
-            if (i > 0 && itemstack != null) {
-                float f1 = (float) (i * i + 1);
-
-                boolean canHarvest = ForgeHooks.canToolHarvestBlock(block, meta, itemstack);
-
-                if (!canHarvest && f <= 1.0F) {
-                    f += f1 * 0.08F;
-                } else {
-                    f += f1;
-                }
+        // Efficiency handling:
+        // Apply only when base speed > 1.0F (vanilla-style gate)
+        if (speed > 1.0F) {
+            int eff = EnchantmentHelper.getEfficiencyModifier(entityLiving);
+            if (eff > 0 && stack != null) {
+                float bonus = (float) (eff * eff + 1);
+                boolean canHarvest = ForgeHooks.canToolHarvestBlock(block, meta, stack);
+                speed += canHarvest ? bonus : bonus * 0.08F;
             }
         }
 
+        // Potions
         if (entityLiving.isPotionActive(Potion.digSpeed)) {
-            f *= 1.0F + (float) (entityLiving.getActivePotionEffect(Potion.digSpeed)
+            speed *= 1.0F + (float) (entityLiving.getActivePotionEffect(Potion.digSpeed)
                 .getAmplifier() + 1) * 0.2F;
         }
 
         if (entityLiving.isPotionActive(Potion.digSlowdown)) {
-            f *= 1.0F - (float) (entityLiving.getActivePotionEffect(Potion.digSlowdown)
+            speed *= 1.0F - (float) (entityLiving.getActivePotionEffect(Potion.digSlowdown)
                 .getAmplifier() + 1) * 0.2F;
         }
-
         if (entityLiving.isInsideOfMaterial(Material.water)
             && !EnchantmentHelper.getAquaAffinityModifier(entityLiving)) {
-            f /= 5.0F;
+            speed /= 5.0F;
         }
 
+        // Airborne penalty
         if (!entityLiving.onGround) {
-            f /= 5.0F;
+            speed /= 5.0F;
         }
 
-        return (f < 0 ? 0 : f);
+        return Math.max(speed, 0.0F);
     }
 
     public static float getBlockStrength(EntityLiving entityLiving, Block block, World world, int x, int y, int z,
         boolean ignoreTool) {
-        // Returns true if something like Iguana Tweaks is nerfing the vanilla picks. This will then cause zombies to
-        // ignore the harvestability of blocks when holding picks
-        boolean nerfedPick = !Items.iron_pickaxe.canHarvestBlock(Blocks.stone, new ItemStack(Items.iron_pickaxe));
-        int metadata = world.getBlockMetadata(x, y, z);
         float hardness = block.getBlockHardness(world, x, y, z);
-
-        if (hardness < 0.0F) {
+        if (hardness <= 0.0F) {
             return 0.0F;
         }
 
-        ItemStack item = entityLiving.getEquipmentInSlot(0);
-        boolean canHarvest = ignoreTool || (item != null && (item.getItem()
-            .canHarvestBlock(block, item) || (item.getItem() instanceof ItemPickaxe && nerfedPick)))
-            || block.getMaterial()
-                .isToolNotRequired();
+        int meta = world.getBlockMetadata(x, y, z);
+        ItemStack stack = entityLiving.getEquipmentInSlot(0);
+        Material mat = block.getMaterial();
 
-        if (!canHarvest) {
-            return getBreakSpeed(entityLiving, item, block, metadata) / hardness / 100F;
-        } else {
-            return getBreakSpeed(entityLiving, item, block, metadata) / hardness / 30F;
+        // Determine "can harvest" (affects divisor 30 vs 100)
+        boolean canHarvest = false;
+
+        if (ignoreTool) {
+            canHarvest = true;
+        } else if (mat != null && mat.isToolNotRequired()) {
+            canHarvest = true;
+        } else if (stack != null && stack.getItem() != null) {
+            boolean forgeHarvest = ForgeHooks.canToolHarvestBlock(block, meta, stack);
+            boolean vanillaHarvest = stack.getItem()
+                .canHarvestBlock(block, stack);
+
+            boolean pickaxeException = (NERFED_PICKAXES && stack.getItem() instanceof ItemPickaxe
+                && mat == Material.rock);
+
+            canHarvest = forgeHarvest || vanillaHarvest || pickaxeException;
         }
+
+        // Calculate speed
+        float speed = getBreakSpeed(entityLiving, stack, block, meta);
+        if (speed <= 0.0F || Float.isNaN(speed) || Float.isInfinite(speed)) return 0.0F;
+        // Vanilla-ish divisor scheme (30 if harvestable, 100 otherwise)
+        return canHarvest ? (speed / hardness / 30F) : (speed / hardness / 100F);
+    }
+
+    private static Vec3 getVectorFromRotation(float yaw, float pitch) {
+        float f3 = MathHelper.cos(-yaw * RADIAN - (float) Math.PI);
+        float f4 = MathHelper.sin(-yaw * RADIAN - (float) Math.PI);
+        float f5 = -MathHelper.cos(-pitch * RADIAN);
+        float f6 = MathHelper.sin(-pitch * RADIAN);
+        float f7 = f4 * f5;
+        float f8 = f3 * f5;
+        return Vec3.createVectorHelper(f7, f6, f8);
     }
 
     public static Entity RayCastEntities(World world, double x, double y, double z, float yaw, float pitch, double dist,
         EntityLivingBase source) {
-        Vec3 vec3 = Vec3.createVectorHelper(x, y, z);
-        float f3 = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
-        float f4 = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
-        float f5 = -MathHelper.cos(-pitch * 0.017453292F);
-        float f6 = MathHelper.sin(-pitch * 0.017453292F);
-        float f7 = f4 * f5;
-        float f8 = f3 * f5;
-        double d3 = dist; // Ray Distance
-        Vec3 vec31 = vec3.addVector((double) f7 * d3, (double) f6 * d3, (double) f8 * d3);
-        return RayCastEntities(world, vec3, vec31, source);
+        Vec3 start = Vec3.createVectorHelper(x, y, z);
+        Vec3 lookVec = getVectorFromRotation(yaw, pitch);
+        Vec3 end = start.addVector(lookVec.xCoord * dist, lookVec.yCoord * dist, lookVec.zCoord * dist);
+
+        return RayCastEntities(world, start, end, source);
     }
 
     public static Entity RayCastEntities(World world, double x, double y, double z, float yaw, float pitch,
         double dist) {
-        Vec3 vec3 = Vec3.createVectorHelper(x, y, z);
-        float f3 = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
-        float f4 = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
-        float f5 = -MathHelper.cos(-pitch * 0.017453292F);
-        float f6 = MathHelper.sin(-pitch * 0.017453292F);
-        float f7 = f4 * f5;
-        float f8 = f3 * f5;
-        double d3 = dist; // Ray Distance
-        Vec3 vec31 = vec3.addVector((double) f7 * d3, (double) f6 * d3, (double) f8 * d3);
-        return RayCastEntities(world, vec3, vec31, null);
+        return RayCastEntities(world, x, y, z, yaw, pitch, dist, null);
     }
 
     public static Entity RayCastEntities(World world, Vec3 start, Vec3 end, EntityLivingBase source) {
-        double d0 = start.distanceTo(end);
-        double d1 = d0;
-        Vec3 vec3 = start;
-        Vec3 vec32 = end;
+        double dist = start.distanceTo(end);
         Entity pointedEntity = null;
-        @SuppressWarnings("unchecked")
+
         List<Entity> list = world.getEntitiesWithinAABBExcludingEntity(
             source,
             AxisAlignedBB
                 .getBoundingBox(start.xCoord, start.yCoord, start.zCoord, start.xCoord, start.yCoord, start.zCoord)
-                .expand(d0, d0, d0));
-        double d2 = d1;
+                .expand(dist, dist, dist));
+
+        double closest = dist;
 
         for (int i = 0; i < list.size(); ++i) {
-            Entity entity = (Entity) list.get(i);
+            Entity entity = list.get(i);
 
             if (entity.canBeCollidedWith()) {
-                float f2 = entity.getCollisionBorderSize();
-                AxisAlignedBB axisalignedbb = entity.boundingBox.expand((double) f2, (double) f2, (double) f2);
-                MovingObjectPosition movingobjectposition = axisalignedbb.calculateIntercept(vec3, vec32);
+                float border = entity.getCollisionBorderSize();
+                AxisAlignedBB bb = entity.boundingBox.expand(border, border, border);
+                MovingObjectPosition hit = bb.calculateIntercept(start, end);
 
-                if (axisalignedbb.isVecInside(vec3)) {
-                    if (0.0D < d2 || d2 == 0.0D) {
+                if (bb.isVecInside(start)) {
+                    if (0.0D < closest || closest == 0.0D) {
                         pointedEntity = entity;
-                        d2 = 0.0D;
+                        closest = 0.0D;
                     }
-                } else if (movingobjectposition != null) {
-                    double d3 = vec3.distanceTo(movingobjectposition.hitVec);
+                } else if (hit != null) {
+                    double d = start.distanceTo(hit.hitVec);
 
-                    if (d3 < d2 || d2 == 0.0D) {
+                    if (d < closest || closest == 0.0D) {
                         if (source != null && entity == source.ridingEntity && !entity.canRiderInteract()) {
-                            if (d2 == 0.0D) {
+                            if (closest == 0.0D) {
                                 pointedEntity = entity;
                             }
                         } else {
                             pointedEntity = entity;
-                            d2 = d3;
+                            closest = d;
                         }
                     }
                 }
@@ -171,19 +174,15 @@ public class AIUtils {
 
     public static MovingObjectPosition RayCastBlocks(World world, double x, double y, double z, float yaw, float pitch,
         double dist, boolean liquids) {
-        Vec3 vec3 = Vec3.createVectorHelper(x, y, z);
-        float f3 = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
-        float f4 = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
-        float f5 = -MathHelper.cos(-pitch * 0.017453292F);
-        float f6 = MathHelper.sin(-pitch * 0.017453292F);
-        float f7 = f4 * f5;
-        float f8 = f3 * f5;
-        double d3 = dist; // Ray Distance
-        Vec3 vec31 = vec3.addVector((double) f7 * d3, (double) f6 * d3, (double) f8 * d3);
-        return RayCastBlocks(world, vec3, vec31, liquids);
+        Vec3 start = Vec3.createVectorHelper(x, y, z);
+        Vec3 lookVec = getVectorFromRotation(yaw, pitch);
+        Vec3 end = start.addVector(lookVec.xCoord * dist, lookVec.yCoord * dist, lookVec.zCoord * dist);
+
+        return RayCastBlocks(world, start, end, liquids);
     }
 
     public static MovingObjectPosition RayCastBlocks(World world, Vec3 vector1, Vec3 vector2, boolean liquids) {
+        // world.rayTraceBlocks equivalent in 1.7.10
         return world.func_147447_a(vector1, vector2, liquids, !liquids, false);
     }
 }

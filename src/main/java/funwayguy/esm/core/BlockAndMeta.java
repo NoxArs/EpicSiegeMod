@@ -26,25 +26,19 @@ public class BlockAndMeta {
         if (this == o) return true;
         if (!(o instanceof BlockAndMeta)) return false;
         BlockAndMeta other = (BlockAndMeta) o;
-        if (!Block.isEqualTo(this.block, other.block)) return false;
-        if (this.meta == -1 || other.meta == -1) return true;
-
-        return this.meta == other.meta;
+        return Block.isEqualTo(this.block, other.block) && this.meta == other.meta;
     }
 
     @Override
     public int hashCode() {
         int id = (block == null) ? 0 : Block.getIdFromBlock(block);
-        return (meta == -1) ? 31 * id - 1 : 31 * id + meta;
+        int m = (meta < 0 ? 0xFFFF : meta);
+        return 31 * id + m;
     }
 
     public static BlockAndMeta[] buildList(String listName, String[] blockListRaw) {
         HashSet<BlockAndMeta> blockList = new HashSet<BlockAndMeta>();
-
-        ESM.log.info("Building " + listName + "...");
-
         if (blockListRaw == null) {
-            ESM.log.warn(" - " + listName + " list is null");
             return new BlockAndMeta[0];
         }
 
@@ -73,7 +67,6 @@ public class BlockAndMeta {
             int len = parts.length;
 
             if (len != 2 && len != 3) {
-                ESM.log.warn(" - Invalid block (bad length of " + len + "): " + line);
                 continue;
             }
 
@@ -81,13 +74,11 @@ public class BlockAndMeta {
             String name = parts[1].trim();
 
             if (modid.isEmpty() || name.isEmpty()) {
-                ESM.log.warn(" - Invalid block (parse/format error): " + line);
                 continue;
             }
 
             Block block = GameRegistry.findBlock(modid, name);
             if (block == null) {
-                ESM.log.warn(" - Skipping missing block: " + line);
                 continue;
             }
 
@@ -105,9 +96,6 @@ public class BlockAndMeta {
 
             blockList.add(new BlockAndMeta(block, meta));
         }
-
-        ESM.log.info("...added " + blockList.size() + " blocks to " + listName);
-
         return blockList.toArray(new BlockAndMeta[blockList.size()]);
     }
 

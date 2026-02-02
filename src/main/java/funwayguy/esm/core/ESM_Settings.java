@@ -22,14 +22,15 @@ import net.minecraftforge.common.config.ConfigCategory;
 import net.minecraftforge.common.config.Configuration;
 
 import org.apache.logging.log4j.Level;
+import funwayguy.esm.Tags;
 
 public class ESM_Settings {
 
     // Mod Data
-    public static final String Version = "@VERSION@";
-    public static final String ID = "ESM_ReignModpack";
-    public static final String Channel = "ESM_ReignModpack";
-    public static final String Name = "Epic Siege Mod - Unofficial Reign Modpack Edition";
+    public static final String Version = Tags.VERSION;
+    public static final String ID = "epicsiegemod";
+    public static final String Channel = "stable";
+    public static final String Name = "EpicSiegeMod-Unofficial";
     public static final String Proxy = "funwayguy.esm.core.proxies";
 
     // Main
@@ -135,17 +136,7 @@ public class ESM_Settings {
     public static boolean attackPets = true;
     public static boolean MobBombInvert = false;
 
-    // Generation
-    public static boolean NewEnd;
-    public static boolean NewHell;
-    public static boolean SpawnForts;
-    public static int fortRarity = 2;
-    public static int fortDistance = 16;
-    public static ArrayList<Integer> fortDimensions = new ArrayList<Integer>();
-    public static ArrayList<String> fortSpawners = new ArrayList<String>();
-
     // Non-configurables
-    public static ArrayList<String> fortDB = new ArrayList<String>();
     public static WorldServer[] currentWorlds = null;
     public static File worldDir = null;
     public static boolean ambiguous_AI = true;
@@ -163,11 +154,6 @@ public class ESM_Settings {
         config.setCategoryComment(
             "World",
             "For the main list of options please refer to the ESM_Options.cfg file in your world directory.");
-
-        NewEnd = config.get("World", "Use New End", false)
-            .getBoolean(false);
-        NewHell = config.get("World", "Use New Nether", false)
-            .getBoolean(false);
 
         config.save();
 
@@ -521,26 +507,6 @@ public class ESM_Settings {
             "Advanced Mobs",
             true,
             "Zombies and Skeletons will use boats in water to catch up to you!");
-
-        // World
-        SpawnForts = defConfig.get("World", "Spawn Forts", true)
-            .getBoolean(true);
-        fortRarity = defConfig.get("World", "Fort Rarity", 100)
-            .getInt(100);
-        fortDistance = defConfig.get("World", "Fort Distance", 1024)
-            .getInt(1024);
-        String[] defSpawn = new String[] { "Zombie", "Creeper", "Skeleton", "CaveSpider", "Silverfish", "Spider",
-            "Slime", "Witch" };
-        fortSpawners = new ArrayList<String>(
-            Arrays.asList(
-                defConfig.get("World", "Fort Spawner Types", defSpawn)
-                    .getStringList()));
-        int[] tmpFD = defConfig.get("World", "Fort Dimensions", new int[] { 0 })
-            .getIntList();
-
-        for (int dimID : tmpFD) {
-            fortDimensions.add(dimID);
-        }
 
         dimSettings.clear();
         Set<ConfigCategory> cats = defConfig.getCategory("Dimension Tweaks")
@@ -943,30 +909,6 @@ public class ESM_Settings {
             mobBoating,
             "Zombies and Skeletons will use boats in water to catch up to you!");
 
-        // World
-        SpawnForts = config.get("World", "Spawn Forts", SpawnForts)
-            .getBoolean(SpawnForts);
-        fortRarity = config.get("World", "Fort Rarity", fortRarity)
-            .getInt(fortRarity);
-        fortDistance = config.get("World", "Fort Distance", fortDistance)
-            .getInt(fortDistance);
-        String[] defSpawn = new String[] { "Zombie", "Creeper", "Skeleton", "CaveSpider", "Silverfish", "Spider",
-            "Slime", "Witch" };
-        fortSpawners = new ArrayList<String>(
-            Arrays.asList(
-                config.get("World", "Fort Spawner Types", defSpawn)
-                    .getStringList()));
-        int[] tmpFDDef = new int[fortDimensions.size()];
-        for (int i = 0; i < fortDimensions.size(); i++) {
-            tmpFDDef[i] = fortDimensions.get(i);
-        }
-        int[] tmpFD = config.get("World", "Fort Dimensions", tmpFDDef)
-            .getIntList();
-        fortDimensions = new ArrayList<Integer>();
-        for (int dimID : tmpFD) {
-            fortDimensions.add(dimID);
-        }
-
         dimSettings.clear();
         Set<ConfigCategory> cats = config.getCategory("Dimension Tweaks")
             .getChildren();
@@ -1013,8 +955,6 @@ public class ESM_Settings {
         config.save();
 
         ESM_Utils.UpdateBiomeSpawns();
-
-        fortDB = loadFortDB();
     }
 
     public static BlockAndMeta[] getZombieGriefBlocks() {
@@ -1022,7 +962,9 @@ public class ESM_Settings {
             ZombieGriefBlocks = BlockAndMeta.buildList(
                 "Zombie grief block list",
                 ZombieGriefBlocksRaw.toArray(new String[ZombieGriefBlocksRaw.size()]));
-            if (ZombieGriefBlocks != null && ZombieGriefBlocks.length == 0) ZombieGriefBlocks = null;
+            if (ZombieGriefBlocks == null) {
+                ZombieGriefBlocks = new BlockAndMeta[0];
+            }
         }
         return ZombieGriefBlocks;
     }
@@ -1035,61 +977,6 @@ public class ESM_Settings {
             if (ZombieDigBlacklist != null && ZombieDigBlacklist.length == 0) ZombieDigBlacklist = null;
         }
         return ZombieDigBlacklist;
-    }
-
-    @SuppressWarnings("unchecked")
-    public static ArrayList<String> loadFortDB() {
-        File fileFortDB = new File(worldDir, "ESM_fortDB");
-        ESM.log.log(Level.INFO, "Loading fortDB from " + fileFortDB.getPath());
-
-        if (!fileFortDB.exists()) {
-            return new ArrayList<String>();
-        } else {
-            try {
-                FileInputStream fileIn = new FileInputStream(fileFortDB);
-                BufferedInputStream buffer = new BufferedInputStream(fileIn);
-                ObjectInputStream objIn = new ObjectInputStream(buffer);
-
-                ArrayList<String> savedDB = (ArrayList<String>) objIn.readObject();
-
-                objIn.close();
-                buffer.close();
-                fileIn.close();
-
-                return savedDB;
-            } catch (Exception e) {
-                return new ArrayList<String>();
-            }
-        }
-    }
-
-    public static void saveFortDB() {
-        if (fortDB == null || fortDB.size() <= 0) {
-            return;
-        }
-
-        File fileFortDB = new File(worldDir, "ESM_fortDB");
-
-        ESM.log.log(Level.INFO, "Saving fortDB to " + fileFortDB.getPath());
-
-        try {
-            if (!fileFortDB.exists()) {
-                fileFortDB.createNewFile();
-            }
-
-            FileOutputStream fileOut = new FileOutputStream(fileFortDB);
-            BufferedOutputStream buffer = new BufferedOutputStream(fileOut);
-            ObjectOutputStream objOut = new ObjectOutputStream(buffer);
-
-            objOut.writeObject(fortDB);
-
-            objOut.close();
-            buffer.close();
-            fileOut.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return;
-        }
     }
 
     public static boolean isXrayAllowed(long worldTime) {
